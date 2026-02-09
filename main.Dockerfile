@@ -72,6 +72,9 @@ COPY --from=prod-deps /app/node_modules /app/node_modules
 COPY --from=build /app/dist /app/dist
 COPY package.json /app/
 
+# Do NOT copy .env file - use environment variables from deployment platform
+# This ensures DOCKER=true is respected and installation tests are skipped
+
 # app configuration via environment variables
 ENV DATA_DIR_PATH=/app/data
 ENV DOCKER=true
