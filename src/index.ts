@@ -1,8 +1,22 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
+// Global error handlers - must be at the very top before any other code
+process.on("uncaughtException", (err: Error) => {
+  console.error("[uncaughtException]", err);
+  console.error("[uncaughtException] Stack:", err.stack);
+  // Don't exit - let the server continue if possible
+});
+
+process.on("unhandledRejection", (reason: unknown) => {
+  console.error("[unhandledRejection]", reason);
+  if (reason instanceof Error) {
+    console.error("[unhandledRejection] Stack:", reason.stack);
+  }
+  // Don't exit - let the server continue if possible
+});
+
 import path from "path";
 import fs from "fs-extra";
 
-import { Kokoro } from "./short-creator/libraries/Kokoro";
 import { Remotion } from "./short-creator/libraries/Remotion";
 import { Whisper } from "./short-creator/libraries/Whisper";
 import { FFMpeg } from "./short-creator/libraries/FFmpeg";
@@ -18,8 +32,8 @@ async function main() {
   try {
     config.ensureConfig();
   } catch (err: unknown) {
-    logger.error(err, "Error in config");
-    process.exit(1);
+    logger.error(err, "Error in config validation - API calls will fail until fixed");
+    // Don't exit - server can still start for debugging
   }
 
   const musicManager = new MusicManager(config);
@@ -27,31 +41,56 @@ async function main() {
     logger.debug("checking music files");
     musicManager.ensureMusicFilesExist();
   } catch (error: unknown) {
-    logger.error(error, "Missing music files");
-    process.exit(1);
+    logger.error(error, "Missing music files - videos will not have background music");
+    // Don't exit - server can still start
   }
 
-  logger.debug("initializing remotion");
-  const remotion = await Remotion.init(config);
-  logger.debug("initializing kokoro");
-  const kokoro = await Kokoro.init(config.kokoroModelPrecision);
-  logger.debug("initializing whisper");
-  const whisper = await Whisper.init(config);
-  logger.debug("initializing ffmpeg");
-  const ffmpeg = await FFMpeg.init();
+  // Initialize Remotion
+  let remotion: Remotion;
+  try {
+    logger.debug("initializing remotion");
+    remotion = await Remotion.init(config);
+    logger.info("Remotion initialized successfully");
+  } catch (error: unknown) {
+    logger.error(error, "Failed to initialize Remotion - video rendering will fail");
+    remotion = null as unknown as Remotion;
+  }
+
+  // Initialize FFmpeg
+  let ffmpeg: FFMpeg;
+  try {
+    logger.debug("initializing ffmpeg");
+    ffmpeg = await FFMpeg.init();
+    logger.info("FFmpeg initialized successfully");
+  } catch (error: unknown) {
+    logger.error(error, "Failed to initialize FFmpeg - audio/video processing will fail");
+    ffmpeg = null as unknown as FFMpeg;
+  }
+
+  // Initialize Whisper
+  let whisper: Whisper;
+  try {
+    logger.debug("initializing whisper");
+    whisper = await Whisper.init(config);
+    logger.info("Whisper initialized successfully");
+  } catch (error: unknown) {
+    logger.error(error, "Failed to initialize Whisper - caption generation will fail");
+    whisper = null as unknown as Whisper;
+  }
+
   const pexelsApi = new PexelsAPI(config.pexelsApiKey);
 
   logger.debug("initializing the short creator");
   const shortCreator = new ShortCreator(
     config,
     remotion,
-    kokoro,
     whisper,
     ffmpeg,
     pexelsApi,
     musicManager,
   );
 
+  // Skip installation test when running in Docker - it's already baked into the image
   if (!config.runningInDocker) {
     // the project is running with npm - we need to check if the installation is correct
     if (fs.existsSync(config.installationSuccessfulPath)) {
@@ -61,8 +100,7 @@ async function main() {
         "testing if the installation was successful - this may take a while...",
       );
       try {
-        const audioBuffer = (await kokoro.generate("hi", "af_heart")).audio;
-        await ffmpeg.createMp3DataUri(audioBuffer);
+        await ffmpeg.createMp3DataUri(Buffer.from([]));
         await pexelsApi.findVideo(["dog"], 2.4);
         const testVideoPath = path.join(config.tempDirPath, "test.mp4");
         await remotion.testRender(testVideoPath);
@@ -76,15 +114,19 @@ async function main() {
           error,
           "The environment is not set up correctly - please follow the instructions in the README.md file https://github.com/gyoridavid/short-video-maker",
         );
-        process.exit(1);
+        // Still continue to server - allow debugging
+        logger.warn("Starting server despite installation test failure for debugging");
       }
     }
+  } else {
+    logger.info("Running in Docker - skipping installation test");
   }
 
   logger.debug("initializing the server");
   const server = new Server(config, shortCreator);
   const app = server.start();
 
+  logger.info("Server started successfully on port " + config.port);
   // todo add shutdown handler
 }
 

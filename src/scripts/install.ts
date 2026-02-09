@@ -1,18 +1,15 @@
 import { ensureBrowser } from "@remotion/renderer";
 
 import { logger } from "../logger";
-import { Kokoro } from "../short-creator/libraries/Kokoro";
 import { MusicManager } from "../short-creator/music";
 import { Config } from "../config";
 import { Whisper } from "../short-creator/libraries/Whisper";
 
-// runs in docker
+// runs in docker - TTS is now handled externally via OpenAI
 export async function install() {
   const config = new Config();
 
   logger.info("Installing dependencies...");
-  logger.info("Installing Kokoro...");
-  await Kokoro.init(config.kokoroModelPrecision);
   logger.info("Installing browser shell...");
   await ensureBrowser();
   logger.info("Installing whisper.cpp");

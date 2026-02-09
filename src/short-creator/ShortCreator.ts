@@ -6,7 +6,6 @@ import path from "path";
 import https from "https";
 import http from "http";
 
-import { Kokoro } from "./libraries/Kokoro";
 import { Remotion } from "./libraries/Remotion";
 import { Whisper } from "./libraries/Whisper";
 import { FFMpeg } from "./libraries/FFmpeg";
@@ -33,7 +32,6 @@ export class ShortCreator {
   constructor(
     private config: Config,
     private remotion: Remotion,
-    private kokoro: Kokoro,
     private whisper: Whisper,
     private ffmpeg: FFMpeg,
     private pexelsApi: PexelsAPI,
@@ -100,20 +98,41 @@ export class ShortCreator {
     );
     const scenes: Scene[] = [];
     let totalDuration = 0;
-    const excludeVideoIds = [];
-    const tempFiles = [];
+    const excludeVideoIds: string[] = [];
+    const tempFiles: string[] = [];
 
     const orientation: OrientationEnum =
       config.orientation || OrientationEnum.portrait;
 
     let index = 0;
     for (const scene of inputScenes) {
-      const audio = await this.kokoro.generate(
-        scene.text,
-        config.voice ?? "af_heart",
-      );
-      let { audioLength } = audio;
-      const { audio: audioStream } = audio;
+      // TTS audio should be provided externally via OpenAI TTS
+      // scene.audioUrl or scene.audioBuffer should contain the pre-generated audio
+      if (!scene.audioUrl && !scene.audioBuffer) {
+        throw new Error(
+          "Scene is missing audio. TTS must be generated externally via OpenAI TTS. " +
+          "Please provide scene.audioUrl or scene.audioBuffer in the job input."
+        );
+      }
+
+      // Get audio length from the provided audio
+      let audioLength = scene.audioDuration || 2.0; // Default to 2 seconds if not provided
+      // Convert audioBuffer to ArrayBuffer for FFmpeg
+      let audioBufferForFfmpeg: ArrayBuffer | undefined;
+      if (scene.audioBuffer) {
+        if (scene.audioBuffer instanceof ArrayBuffer) {
+          audioBufferForFfmpeg = scene.audioBuffer;
+        } else if (scene.audioBuffer instanceof Uint8Array) {
+          audioBufferForFfmpeg = scene.audioBuffer.buffer.slice(
+            scene.audioBuffer.byteOffset,
+            scene.audioBuffer.byteOffset + scene.audioBuffer.byteLength
+          );
+        } else {
+          // Handle unknown buffer types - convert to ArrayBuffer
+          const values = Object.values(scene.audioBuffer) as number[];
+          audioBufferForFfmpeg = new Uint8Array(values).buffer;
+        }
+      }
 
       // add the paddingBack in seconds to the last scene
       if (index + 1 === inputScenes.length && config.paddingBack) {
@@ -133,10 +152,20 @@ export class ShortCreator {
       tempFiles.push(tempVideoPath);
       tempFiles.push(tempWavPath, tempMp3Path);
 
-      await this.ffmpeg.saveNormalizedAudio(audioStream, tempWavPath);
+      // Save the provided audio to temp files
+      if (audioBufferForFfmpeg) {
+        await this.ffmpeg.saveNormalizedAudio(audioBufferForFfmpeg, tempWavPath);
+      } else if (scene.audioUrl) {
+        // Download audio from URL if provided
+        await this.downloadAudio(scene.audioUrl, tempWavPath);
+      }
+
       const captions = await this.whisper.CreateCaption(tempWavPath);
 
-      await this.ffmpeg.saveToMp3(audioStream, tempMp3Path);
+      // Read back the WAV file and convert to MP3
+      const wavBuffer = await fs.readFile(tempWavPath);
+      await this.ffmpeg.saveToMp3(wavBuffer.buffer as ArrayBuffer, tempMp3Path);
+
       const video = await this.pexelsApi.findVideo(
         scene.searchTerms,
         audioLength,
@@ -218,6 +247,26 @@ export class ShortCreator {
     return videoId;
   }
 
+  private async downloadAudio(url: string, destPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      https.get(url, (response) => {
+        if (response.statusCode !== 200) {
+          reject(new Error(`Failed to download audio: ${response.statusCode}`));
+          return;
+        }
+        const fileStream = fs.createWriteStream(destPath);
+        response.pipe(fileStream);
+        fileStream.on("finish", () => {
+          fileStream.close();
+          resolve();
+        });
+      }).on("error", (err) => {
+        fs.unlink(destPath, () => {});
+        reject(err);
+      });
+    });
+  }
+
   public getVideoPath(videoId: string): string {
     return path.join(this.config.videosDirPath, `${videoId}.mp4`);
   }
@@ -292,6 +341,7 @@ export class ShortCreator {
   }
 
   public ListAvailableVoices(): string[] {
-    return this.kokoro.listAvailableVoices();
+    // TTS is now handled externally via OpenAI
+    return ["external_tts"];
   }
 }

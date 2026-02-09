@@ -37,6 +37,19 @@ export const sceneInput = z.object({
     .describe(
       "Search term for video, 1 word, and at least 2-3 search terms should be provided for each scene. Make sure to match the overall context with the word - regardless what the video search result would be.",
     ),
+  audioUrl: z
+    .string()
+    .url()
+    .optional()
+    .describe("URL to pre-generated audio file (for external TTS like OpenAI)"),
+  audioBuffer: z
+    .custom<Uint8Array | ArrayBuffer>()
+    .optional()
+    .describe("Pre-generated audio buffer (Uint8Array or ArrayBuffer) for the scene"),
+  audioDuration: z
+    .number()
+    .optional()
+    .describe("Duration of the audio in seconds (required if using external audio)"),
 });
 export type SceneInput = z.infer<typeof sceneInput>;
 
