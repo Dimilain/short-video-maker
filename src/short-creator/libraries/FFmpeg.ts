@@ -6,7 +6,10 @@ export class FFMpeg {
   static async init(): Promise<FFMpeg> {
     return import("@ffmpeg-installer/ffmpeg")
       .then((ffmpegInstaller) => {
-        const ffmpegPath = process.env.FFMPEG_PATH || ffmpegInstaller.path || "/usr/bin/ffmpeg";
+        const envPath = process.env.FFMPEG_PATH;
+        const installerPath = ffmpegInstaller.path;
+        const ffmpegPath = envPath || installerPath || "/usr/bin/ffmpeg";
+        logger.info("FFmpeg init - env:", envPath, "installer:", installerPath, "final:", ffmpegPath);
         ffmpeg.setFfmpegPath(ffmpegPath);
         logger.info("FFmpeg path set to:", ffmpegPath);
         return new FFMpeg();
