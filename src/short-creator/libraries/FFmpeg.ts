@@ -4,11 +4,32 @@ import { logger } from "../../logger";
 
 export class FFMpeg {
   static async init(): Promise<FFMpeg> {
-    return import("@ffmpeg-installer/ffmpeg").then((ffmpegInstaller) => {
-      ffmpeg.setFfmpegPath(ffmpegInstaller.path);
-      logger.info("FFmpeg path set to:", ffmpegInstaller.path);
-      return new FFMpeg();
-    });
+    return import("@ffmpeg-installer/ffmpeg")
+      .then((ffmpegInstaller) => {
+        const ffmpegPath = ffmpegInstaller.path || process.env.FFMPEG_PATH || "ffmpeg";
+        ffmpeg.setFfmpegPath(ffmpegPath);
+        logger.info("FFmpeg path set to:", ffmpegPath);
+        return new FFMpeg();
+      })
+      .catch(async (error) => {
+        // Fallback: try to use system ffmpeg
+        logger.warn("Failed to load @ffmpeg-installer/ffmpeg, falling back to system FFmpeg");
+        try {
+          const { execSync } = await import("node:child_process");
+          const systemFfmpeg = execSync("which ffmpeg || where ffmpeg || echo 'ffmpeg'", { encoding: "utf-8" }).trim();
+          if (systemFfmpeg && systemFfmpeg !== "ffmpeg") {
+            ffmpeg.setFfmpegPath(systemFfmpeg);
+            logger.info("Using system FFmpeg:", systemFfmpeg);
+            return new FFMpeg();
+          }
+        } catch {
+          // ignore
+        }
+        // If still no FFmpeg, log error but don't fail
+        logger.error("FFmpeg initialization failed:", error.message);
+        logger.warn("FFmpeg operations may fail. Please ensure FFmpeg is installed.");
+        return new FFMpeg();
+      });
   }
 
   async saveNormalizedAudio(
