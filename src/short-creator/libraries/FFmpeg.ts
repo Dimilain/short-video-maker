@@ -2,37 +2,18 @@ import ffmpeg from "fluent-ffmpeg";
 import { Readable } from "node:stream";
 import { logger } from "../../logger";
 
+// Use system ffmpeg directly (installed via apt in Dockerfile)
+const FFMPEG_PATH = "/usr/bin/ffmpeg";
+
 export class FFMpeg {
   static async init(): Promise<FFMpeg> {
-    return import("@ffmpeg-installer/ffmpeg")
-      .then((ffmpegInstaller) => {
-        const envPath = process.env.FFMPEG_PATH;
-        const installerPath = ffmpegInstaller.path;
-        const ffmpegPath = envPath || installerPath || "/usr/bin/ffmpeg";
-        logger.info("FFmpeg init - env:", envPath, "installer:", installerPath, "final:", ffmpegPath);
-        ffmpeg.setFfmpegPath(ffmpegPath);
-        logger.info("FFmpeg path set to:", ffmpegPath);
-        return new FFMpeg();
-      })
-      .catch(async (error) => {
-        // Fallback: try to use system ffmpeg
-        logger.warn("Failed to load @ffmpeg-installer/ffmpeg, falling back to system FFmpeg");
-        try {
-          const { execSync } = await import("node:child_process");
-          const systemFfmpeg = execSync("which ffmpeg || where ffmpeg || echo 'ffmpeg'", { encoding: "utf-8" }).trim();
-          if (systemFfmpeg && systemFfmpeg !== "ffmpeg") {
-            ffmpeg.setFfmpegPath(systemFfmpeg);
-            logger.info("Using system FFmpeg:", systemFfmpeg);
-            return new FFMpeg();
-          }
-        } catch {
-          // ignore
-        }
-        // If still no FFmpeg, log error but don't fail
-        logger.error("FFmpeg initialization failed:", error.message);
-        logger.warn("FFmpeg operations may fail. Please ensure FFmpeg is installed.");
-        return new FFMpeg();
-      });
+    try {
+      ffmpeg.setFfmpegPath(FFMPEG_PATH);
+      logger.info("FFmpeg path set to:", FFMPEG_PATH);
+    } catch (error) {
+      logger.warn("FFmpeg initialization warning:", error);
+    }
+    return new FFMpeg();
   }
 
   async saveNormalizedAudio(
