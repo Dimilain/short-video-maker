@@ -1,4 +1,46 @@
-import { OrientationEnum } from "./../types/shorts";
+// EMOJI SANITIZATION UTILITY - Add at top of file, after imports
+/**
+ * Sanitizes text to remove problematic Unicode/emoji characters
+ * that can cause FFmpeg and Remotion rendering failures
+ */
+function sanitizeTextForFFmpeg(text: string): string {
+  if (!text) return text;
+  
+  return text
+    // Remove emoticons (😀😁😂 etc)
+    .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
+    // Remove misc symbols and pictographs
+    .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
+    // Remove transport and map symbols
+    .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
+    // Remove misc symbols
+    .replace(/[\u{2600}-\u{26FF}]/gu, '')
+    // Remove dingbats
+    .replace(/[\u{2700}-\u{27BF}]/gu, '')
+    // Remove extended pictographs (👍❤️🔥 etc)
+    .replace(/\p{Extended_Pictographic}/gu, '')
+    // Remove variation selectors
+    .replace(/[\u{FE00}-\u{FE0F}]/gu, '')
+    // Remove zero width joiner
+    .replace(/\u{200D}/gu, '')
+    // Replace multiple spaces with single space
+    .replace(/\s+/gu, ' ')
+    .trim();
+}
+
+/**
+ * Sanitizes caption objects to remove emoji issues
+ */
+function sanitizeCaptions(captions: Caption[]): Caption[] {
+  return captions.map(cap => ({
+    ...cap,
+    text: sanitizeTextForFFmpeg(cap.text)
+  })).filter(cap => cap.text.length > 0);
+}
+
+// ===== ShortCreator class =====
+
+import { OrientationEnum, Caption } from "./../types/shorts";
 /* eslint-disable @remotion/deterministic-randomness */
 import fs from "fs-extra";
 import cuid from "cuid";
@@ -118,7 +160,7 @@ export class ShortCreator {
       // Get audio length from the provided audio
       let audioLength = scene.audioDuration || 2.0; // Default to 2 seconds if not provided
       // Convert audioBuffer to ArrayBuffer for FFmpeg
-      let audioBufferForFfmpeg: ArrayBuffer | undefined;
+      let audioBufferForFfmpeg: ArrayBufferLike | undefined;
       if (scene.audioBuffer) {
         if (scene.audioBuffer instanceof ArrayBuffer) {
           audioBufferForFfmpeg = scene.audioBuffer;
@@ -154,7 +196,7 @@ export class ShortCreator {
 
       // Save the provided audio to temp files
       if (audioBufferForFfmpeg) {
-        await this.ffmpeg.saveNormalizedAudio(audioBufferForFfmpeg, tempWavPath);
+        await this.ffmpeg.saveNormalizedAudio(audioBufferForFfmpeg as ArrayBuffer, tempWavPath);
       } else if (scene.audioUrl) {
         // Download audio from URL if provided
         await this.downloadAudio(scene.audioUrl, tempWavPath);

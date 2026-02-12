@@ -44,9 +44,13 @@ export class FFMpeg {
     });
   }
 
-  async createMp3DataUri(audio: ArrayBuffer): Promise<string> {
+  async createMp3DataUri(audio: Uint8Array | Buffer | ArrayBuffer): Promise<string> {
     const inputStream = new Readable();
-    inputStream.push(Buffer.from(audio));
+    // Handle different input types
+    const audioBuffer = audio instanceof Uint8Array 
+      ? Buffer.from(audio) 
+      : Buffer.from(audio as ArrayBuffer);
+    inputStream.push(audioBuffer);
     inputStream.push(null);
     return new Promise((resolve, reject) => {
       const chunk: Buffer[] = [];

@@ -51,6 +51,12 @@ export class Config {
   public concurrency?: number;
   public videoCacheSizeInBytes: number | null = null;
 
+  // Worker render service settings
+  public responseMode: 'binary' | 'url' = 'binary';
+  public audioDownloadTimeoutMs: number = 15000;
+  public assetDownloadTimeoutMs: number = 15000;
+  public videoStorageBucketUrl?: string;
+
   constructor() {
     this.dataDirPath =
       process.env.DATA_DIR_PATH ||
@@ -98,6 +104,16 @@ export class Config {
         process.env.VIDEO_CACHE_SIZE_IN_BYTES,
       );
     }
+
+    // Worker render service settings
+    this.responseMode = (process.env.RESPONSE_MODE as 'binary' | 'url') || 'binary';
+    if (process.env.AUDIO_DOWNLOAD_TIMEOUT_MS) {
+      this.audioDownloadTimeoutMs = parseInt(process.env.AUDIO_DOWNLOAD_TIMEOUT_MS, 10);
+    }
+    if (process.env.ASSET_DOWNLOAD_TIMEOUT_MS) {
+      this.assetDownloadTimeoutMs = parseInt(process.env.ASSET_DOWNLOAD_TIMEOUT_MS, 10);
+    }
+    this.videoStorageBucketUrl = process.env.VIDEO_STORAGE_BUCKET_URL;
   }
 
   public ensureConfig() {

@@ -8,8 +8,18 @@ import path from "path";
 
 import { validateCreateShortInput } from "../validator";
 import { ShortCreator } from "../../short-creator/ShortCreator";
+import { WorkerRenderService } from "../../short-creator/WorkerRenderService";
 import { logger } from "../../logger";
 import { Config } from "../../config";
+import { ShortVideoRenderRequest } from "../../types/video-worker";
+
+// Helper function for error normalization
+function normalizeError(err: unknown): { message: string; stack?: string } {
+  if (err instanceof Error) {
+    return { message: err.message, stack: err.stack };
+  }
+  return { message: String(err) };
+}
 
 // todo abstract class
 export class APIRouter {
@@ -28,6 +38,55 @@ export class APIRouter {
   }
 
   private setupRoutes() {
+    // =============================================================================
+    // Worker Render Endpoint - Synchronous video rendering for ShortVideoWorker
+    // =============================================================================
+    this.router.post(
+      "/short-video/render",
+      async (req: ExpressRequest, res: ExpressResponse) => {
+        const correlationId = `render-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+
+        try {
+          const request = req.body as ShortVideoRenderRequest;
+
+          logger.info({
+            correlationId,
+            sceneCount: request.scenes?.length,
+            resolution: request.config?.resolution,
+          }, 'Worker render request received');
+
+          // Create worker render service instance
+          const workerRenderService = new WorkerRenderService(this.config, this.shortCreator);
+
+          // Render video synchronously
+          const result = await workerRenderService.renderVideo(request);
+
+          if (Buffer.isBuffer(result)) {
+            // Binary mode - return MP4 directly
+            res.setHeader('Content-Type', 'video/mp4');
+            res.setHeader('Content-Length', result.length);
+            res.setHeader('X-Correlation-ID', correlationId);
+            res.end(result);
+          } else {
+            // URL mode - return JSON with videoUrl
+            res.setHeader('X-Correlation-ID', correlationId);
+            res.json(result);
+          }
+        } catch (error: unknown) {
+          const normalized = normalizeError(error);
+          logger.error({
+            correlationId,
+            ...normalized,
+          }, 'Worker render failed');
+
+          res.status(500).json({
+            error: normalized.message,
+            correlationId,
+          });
+        }
+      },
+    );
+
     this.router.post(
       "/short-video",
       async (req: ExpressRequest, res: ExpressResponse) => {
